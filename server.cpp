@@ -1,4 +1,6 @@
-
+/*
+** server.c -- a stream socket server demo
+*/
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -18,7 +20,63 @@
 using namespace std;
 
 
-#define PORT "3128"  // the port users will be connecting to
+// Function to parse and receive the request----------------------
+int recv_request(int newsockfd, char *buffer)			
+{
+
+	cout<<" hi enterin";
+	int end, n;
+	end = 0;
+	char input;
+	int pos = 0;
+	while(end != 4)
+	{
+		n = recv(newsockfd, &input, 1, 0);
+		if(n < 0)
+			{
+				printf("ERROR reading from socket");
+				return 0;
+			}
+
+
+		buffer[pos] = input;
+		pos++;
+		if(end == 0)
+		{
+		
+			if(input == '\r')
+				end = 1;
+		}
+		else if(end == 1)
+		{
+			if(input == '\n')
+				end = 2;
+			else
+				end = 0;
+		}			
+		else if(end == 2)
+		{
+			if(input == '\r')
+				end = 3;
+			else
+				end = 0;
+		}			
+		else if(end == 3)
+		{
+			if(input == '\n')
+				end = 4;
+			else
+				end = 0;
+		}			
+		bzero(&input, 1);
+		
+	}
+	buffer[pos] = '\0';
+	return 1;
+}
+
+
+//#define PORT "3128"  // the port users will be connecting to
 
 #define BACKLOG 10	 // how many pending connections queue will hold
 
@@ -39,8 +97,15 @@ void *get_in_addr(struct sockaddr *sa)
 	return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
-int main(void)
+int main(int argc, char *argv[])
 {
+	if (argc != 2) {
+	    fprintf(stderr,"usage: ./a.out portno \n");
+	    exit(1);
+	}
+		char* PORT=argv[1];
+
+
 	int sockfd, new_fd;  // listen on sock_fd, new connection on new_fd
 	struct addrinfo hints, *servinfo, *p;
 	struct sockaddr_storage their_addr; // connector's address information
@@ -54,6 +119,7 @@ int main(void)
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_flags = AI_PASSIVE; // use my IP
+
 
 	if ((rv = getaddrinfo(NULL, PORT, &hints, &servinfo)) != 0) {
 		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
@@ -128,73 +194,134 @@ int main(void)
 
 		if (!fork()) { // this is the child process
 			close(sockfd); // child doesn't need the listener
-			if (send(new_fd, "Hello, world!", 13, 0) == -1)
-				perror("send");
-			else
-			{
+			// if (send(new_fd, "Hello, world!", 13, 0) == -1)
+			// 	perror("send");
+			// else
+			// {
 				bzero(buf,100);
-				if ((numbytes = recv(new_fd, buf, 30, 0)) >0) 
+				int r = recv_request(new_fd, buf);
+					//cout<<"Getting req"<<endl;
+				if (r >0) 
 				{
-			  		cout<<"received"<<buf;
+			  		//cout<<"received 123"<<buf;
 
 			  		char* request = strtok (buf," ");
 			  		char* filename =strtok(NULL," ");
+
+			  		
 			  		filename+=1;
+			  		//cout<<request;
 
 			  		if(strcmp(request,"PUT")==0)
 			  		{
-			  			char recvpkt[PKTSIZE];
-			  			ofstream myfile("put.html");
-			  			if(myfile.fail())
-			  			cout<<"couldn't create file";
-			  			numbytes=0;
-			  			while( numbytes<5600)//(numbytes+ = recv(new_fd, recvpkt, PKTSIZE-1, 0))>=0)
-			  			{
-			  				numbytes+= recv(new_fd, recvpkt, PKTSIZE-1, 0);
-			  				cout<<" uploading...";
-			  				myfile<< recvpkt;
-			  			}
+							 char recvpkt[PKTSIZE];
+								//send(fd, header, strlen(header), 0); // send the header
+						// int	n = recv(new_fd,recvpkt, 7,0);
+				  // 		if(strcmp(recvpkt,"sending")==0)
+				  // 		i	printf("\nreceiving");
+
+				  		// printf("\n%s",recvpkt);
+							 if(strstr(filename,"/")!=NULL) 
+						{ filename = strrchr(filename, '/'); filename++; }
 
 
+						
+						ofstream myfile(filename,ios::out | ios::binary);
 
-			  			if(numbytes<=0)cout<<" Unable to upload "<<recvpkt;
-			  			myfile.close();
-			  		}
+						while( (numbytes = read(new_fd, recvpkt, PKTSIZE))>0)
+						{
+							//cout<<"getting";//<<recvpkt;
+							myfile.write(recvpkt,numbytes);
+							bzero(recvpkt,PKTSIZE);
+
+						}
+										  		//cout<<recvpkt<<endl;
+
+						 int n = write(new_fd,"200 OK File Created\n",strlen("200 OK FIle Created\n"));
+
+						myfile.close();
+					}
+			  		
+			  		numbytes=0;
 
 
 			  		if(strcmp(request,"GET")==0)
 			  		{ 
-			  			FILE *fp;
-			  			//filename.strip();
-			  			cout<<filename<<" ";
 
-			 			if ((fp = fopen(filename, "r")) == NULL )
-			  				{
-			  					send(new_fd,"404 Not Found",13,0);
+			  			int is_filetype_binary;
+						string file= filename;
+						string extension = file.substr(file.find_last_of(".")+1);
+						//cout<<filename;
+						if(	extension=="png" || extension=="gif" || extension=="jpg"	|| extension=="pdf"|| extension=="jpeg")
+						{
+							is_filetype_binary = 1;
+						}
+						else
+							is_filetype_binary = 0;
+
+						if(!is_filetype_binary)
+						{
+								//cout<<"get..";
+					  			FILE *fp;
+								int n;
+								fp = fopen(filename,"r");
+								if(fp)
+								{
+									char ch;
+									n = write(new_fd,"HTTP/1.1 200 OK",strlen("HTTP/1.1 200 OK"));
+									if(n < 0) 
+										printf("ERROR writing to socket");
+									
+									do{
+										ch = fgetc(fp);
+										n = write(new_fd, &ch, 1);
+										if (n < 0) 
+											printf("ERROR writing to socket");
+												
+									}while( ch != EOF );
+
+									fclose(fp);
+								}
+								else
+								{
+									n = write(new_fd,"HTTP/1.1 404 NOT FOUND\n",strlen("HTTP/1.1 404 NOT FOUND\n"));
+									if (n < 0) 
+										printf("ERROR writing to socket");
+								}
+						}
+						
+						else
+						{
+							char tosend[PKTSIZE];			  			//filename.strip();
+			  				//cout<<filename<<" ";
+							ifstream myfile;
+							myfile.open(filename,ios::in | ios::binary);
+							if(myfile.fail())
+							{
+			  		 			send(new_fd,"HTTP/1.1 404 NOT FOUND",15,0);
 			  					exit(1);
-			  				}
-			  				send(new_fd, http_ok, strlen(http_ok), 0); // if file found send HTTP 200 OK  
-			  				cout<<"File found";
-			  					int count=0;
-			  					char tosend[PKTSIZE];
+			  		 		}
+			  		 			cout<<"FILE FOUND ";
+			  		 			  char http_ok[] = "HTTP/1.1 200 OK";
 
-							while ( fgets ( tosend, PKTSIZE, fp ) ) 
-							{ //sends the content of the file
-		  						 send(new_fd, tosend, strlen(tosend), 0);
-  							}
+								send(new_fd, http_ok,strlen(http_ok),0);
 
+								while(myfile.read(tosend,1)>0)
+								{
+									send(new_fd, tosend, 1, 0);
+								}
+								myfile.close();
+						}
 			  		}
 
 
 			  		
 			  		else
-			  			send(new_fd,"Invalid request",15,0);
-					 
-			  		
+			  			send(new_fd,"Invalid request",15,0);			  		
 
-				    exit(1);
+				   // exit(1);
 				}
-			}
+			//}
 			close(new_fd);
 			exit(0);
 		}
@@ -203,3 +330,5 @@ int main(void)
 
 	return 0;
 }
+
+
